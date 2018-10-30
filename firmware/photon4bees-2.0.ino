@@ -11,7 +11,7 @@
 
 
 PRODUCT_ID(7372); // replace by your product ID
-PRODUCT_VERSION(2); // increment each time you upload to the console
+PRODUCT_VERSION(1); // increment each time you upload to the console
 
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL)); // selects the u.FL antenna
 

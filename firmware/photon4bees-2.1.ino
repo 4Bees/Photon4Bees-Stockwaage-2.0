@@ -10,12 +10,10 @@
 //Piettetech_DHT
 
 
-PRODUCT_ID(7372); // replace by your product ID
+PRODUCT_ID(8374); // replace by your product ID
 PRODUCT_VERSION(1); // increment each time you upload to the console
 
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL)); // selects the u.FL antenna
-
-
 
 void changetoListeningMode()
 {
@@ -27,6 +25,7 @@ void changetoListeningMode()
    WiFi.listen();
  }
 }
+
 
 STARTUP(changetoListeningMode());
 
@@ -112,6 +111,9 @@ STARTUP(softap_set_application_page_handler(myPage, nullptr));
 // Automatically mirror the onboard RGB LED to an external RGB LED
 // No additional code needed in setup() or loop()
 
+STARTUP(RGB.mirrorTo(D1, D1, D2));
+
+/*
 class ExternalRGB {
   public:
     ExternalRGB(pin_t r, pin_t g, pin_t b) : pin_r(r), pin_g(g), pin_b(b) {
@@ -134,8 +136,11 @@ private:
       pin_t pin_b;
 };
 
+
 // Connect an external RGB LED to D0, D1 and D2 (R, G, and B)
 ExternalRGB myRGB(D0, D1, D2);
+
+*/
 
 //********************************************************************
 
@@ -306,19 +311,20 @@ void loop() {
       stringSOC = String(soc);
       delay(1000);
 
-      /*if (!scale_conf){
-        System.sleep(SLEEP_MODE_DEEP, 3600);
+      if (!scale_conf){
+        System.sleep(SLEEP_MODE_DEEP, 3580);
 
       } else {
-*/
+
       Particle.publish("cloud4bees", JSON(), PRIVATE); // Send JSON Particle Cloud
 
       delay(1000);
 
-      System.sleep(SLEEP_MODE_DEEP, 60);
-    //}
+      System.sleep(SLEEP_MODE_DEEP, 3580);
+    }
 }
 
+//This function will get called when calibration comes in
 void calibrationResponse(const char *name, const char *data) {
     strCalibration = String(data);
     // Clear the parser state, add the string test2, and parse it
@@ -326,7 +332,7 @@ void calibrationResponse(const char *name, const char *data) {
   	parser1.addString(strCalibration);
   	if (!parser1.parse()) {
 	  	  Serial.println("parsing failed strCalibration");
-	}
+	  }
 
 	  Serial.println("parsing successful strCalibration");
 	  parser1.getOuterValueByKey("scalefactor", strScalefactor);

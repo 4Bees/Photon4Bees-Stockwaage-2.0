@@ -1,6 +1,6 @@
 // This #include statement was automatically added by the Particle IDE.
 #include "application.h" //Notwendig damit die externe RGB-LED schon beim Booten leuchtet!
-#include "HX711.h"
+#include "HX711_ADC.h"
 #include "Particle.h"  //Softap_http
 #include "softap_http.h"  //SoftAP
 #include "SparkFunMAX17043.h" // Include the SparkFun MAX17043 library
@@ -12,6 +12,11 @@
 
 PRODUCT_ID(8374); // replace by your product ID
 PRODUCT_VERSION(1); // increment each time you upload to the console
+
+// Using SEMI_AUTOMATIC mode to get the lowest possible data usage by
+// registering functions and variables BEFORE connecting to the cloud.
+SYSTEM_MODE(SEMI_AUTOMATIC);
+SYSTEM_THREAD(ENABLED);
 
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL)); // selects the u.FL antenna
 
@@ -111,43 +116,7 @@ STARTUP(softap_set_application_page_handler(myPage, nullptr));
 // Automatically mirror the onboard RGB LED to an external RGB LED
 // No additional code needed in setup() or loop()
 
-STARTUP(RGB.mirrorTo(D1, D1, D2));
-
-/*
-class ExternalRGB {
-  public:
-    ExternalRGB(pin_t r, pin_t g, pin_t b) : pin_r(r), pin_g(g), pin_b(b) {
-      pinMode(pin_r, OUTPUT);
-      pinMode(pin_g, OUTPUT);
-      pinMode(pin_b, OUTPUT);
-      RGB.onChange(&ExternalRGB::handler, this);
-    }
-
-    void handler(uint8_t r, uint8_t g, uint8_t b) {
-
-      analogWrite(pin_r, r);
-      analogWrite(pin_g, g);
-      analogWrite(pin_b, b);
-    }
-
-private:
-      pin_t pin_r;
-      pin_t pin_g;
-      pin_t pin_b;
-};
-
-
-// Connect an external RGB LED to D0, D1 and D2 (R, G, and B)
-ExternalRGB myRGB(D0, D1, D2);
-
-*/
-
-//********************************************************************
-
-//const int buttonPin = D6;     // Pushbutton for Listening Mode
-
-//int buttonState = 0;         // variable for reading the pushbutton status
-
+STARTUP(RGB.mirrorTo(D0, D1, D2));
 
 // DHT humidity/temperature sensors
 #define DHTPIN3 D3     // what pin we're connected to
@@ -159,9 +128,6 @@ ExternalRGB myRGB(D0, D1, D2);
 #define DHTTYPE4 DHT22		// DHT 22 (AM2302)
 //#define DHTTYPE DHT21		// DHT 21 (AM2301)
 
-//DHT dht_pin3(DHTPIN3, DHTTYPE3);
-//DHT dht_pin4(DHTPIN4, DHTTYPE4);
-
 PietteTech_DHT dht_pin3(DHTPIN3, DHTTYPE3);
 PietteTech_DHT dht_pin4(DHTPIN4, DHTTYPE4);
 
@@ -169,10 +135,8 @@ PietteTech_DHT dht_pin4(DHTPIN4, DHTTYPE4);
 #define DOUT  A0
 #define CLK  A1
 
-HX711 scale(DOUT, CLK);
-
-//String str_scalefactor = "";
-//String str_offset = "";
+//HX711 constructor (dout pin, sck pin)
+HX711_ADC LoadCell(DOUT, CLK);
 
 String strCalibration = "";
 String strScalefactor="";
@@ -204,127 +168,154 @@ boolean scale_conf = false;
 // Global parser that supports up to 256 bytes of data and 20 tokens
 JsonParserStatic<256, 20> parser1;
 
+long t;
+
 
 void setup() {
+
   // put your setup code here, to run once:
+  delay(5000);
+  // Begin serial communication
+  Serial.begin(9600);
 
-    // Begin serial communication
-    Serial.begin(115200);
+  Serial.println("Start Setup...");
+  LoadCell.begin();
+  long stabilisingtime = 2000; // tare preciscion can be improved by adding a few seconds of stabilising time
+  LoadCell.start(stabilisingtime);
 
-    // Listen for the webhook response, and call gotWeatherData()
-    //Particle.subscribe("hook-response/get_scalefactor", gotScalefactor, MY_DEVICES);
-    //Particle.subscribe("hook-response/get_offset", gotOffset, MY_DEVICES);
-    Particle.subscribe("hook-response/calibration", calibrationResponse, MY_DEVICES);
+  // Set up the MAX17043 LiPo fuel gauge:
+	lipo.begin(); // Initialize the MAX17043 LiPo fuel gauge
 
-    // Give ourselves 10 seconds before we actually start the
-    // program.  This will open the serial monitor before
-    // the program sends the request
-    for(int i=0;i<10;i++) {
-        Serial.println("waiting " + String(10-i) + " seconds before we publish");
-        delay(1000);
-    }
-/*
-    // publish the event that will trigger our Webhook
-    Particle.publish("get_scalefactor");
-    delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
-    Particle.publish("get_offset");
-    delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
-*/
-
-    Particle.publish("calibration");
-    delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
-    /*
-    scalefactor = str_scalefactor.toFloat();
-    Serial.println(scalefactor);
-    offset = str_offset.toFloat();
-    Serial.println(offset);
-    */
-
-    Serial.println("Calibration: " + strCalibration);
-    scalefactor = strScalefactor.toFloat();
-    Serial.println("Scalefactor: " + strScalefactor);
-    offset = strOffset.toFloat();
-    Serial.println("Offset: " + strOffset);
-
-    delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
-
-    if (scalefactor != 0) {
-      scale_conf = true;
-    }
-
-    scale.set_scale(scalefactor);                      //this value is obtained by calibrating the scale with known weights;
-                                                 /*   How to Calibrate Your Scale
-                                                      1.Call set_scale() with no parameter.
-                                                      2.Call set_tare() with no parameter.
-                                                      3.Place a known weight on the scale and call get_units(10).
-                                                      4.Divide the result in step 3 to your known weight. You should get about the parameter you need to pass to set_scale.
-                                                      5.Adjust the parameter in step 4 until you get an accurate reading.
-                                                  */
-
+	// Quick start restarts the MAX17043 in hopes of getting a more accurate
+	// guess for the SOC.
+	lipo.quickStart();
 
 }
+
+
+
 
 void loop() {
 
-    scale.power_up();
-    delay(5000);
-    //scale.get_units(10) returns the medium of 10 measures
-    floatGewicht = (scale.get_units(10) - offset);
-    stringGewicht =  String(floatGewicht, 2);
+    Serial.println("Start Loop...");
 
-    scale.power_down();
+    if(lipo.getSOC() > 90) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
+    {
+      Serial.println("SOC: " + String(lipo.getSOC()));
+      //WiFi.on() turns on the Wi-Fi module.
+      WiFi.on();
+      Serial.println("WiFi on...");
+      //Needed in SEMI_AUTOMATIC Mode
+      WiFi.connect();  // This command turns on the Cellular Modem and tells it to connect to the cellular network.
 
-    //Begin DHT communication
-      //dht_pin3.begin();
-      //dht_pin4.begin();
-      int result3 = dht_pin3.acquireAndWait(1000); // wait up to 1 sec (default indefinitely)
-      int result4 = dht_pin4.acquireAndWait(1000);
+      Serial.println("Connecting to WiFi...");
+      delay(500);
 
-    // Reading temperature or humidity takes about 250 milliseconds!
-    // Sensor readings may also be up to 2 seconds 'old' (its a
-    // very slow sensor)
-      delay(1000);
-    	floatHumidity3 = dht_pin3.getHumidity();
-      stringHumidity3 = String(floatHumidity3, 2),
-    // Read temperature as Celsius
-    	//floatTemperature3 = dht_pin3.getTempCelcius();
-      floatTemperature3 = dht_pin3.getCelsius();
-      stringTemperature3 = String(floatTemperature3, 2);
+      if (!waitFor(WiFi.ready, 120000)) { //If the cellular modem does not successfuly connect to the cellular network in 10 mins then go back to sleep via the sleep command below.
+          delay(5000);
+          System.sleep(SLEEP_MODE_DEEP, 3580);
+          //System.sleep(SLEEP_MODE_DEEP, 30);
+      }
 
-      floatHumidity4 = dht_pin4.getHumidity();
-      stringHumidity4 = String(floatHumidity4, 2);
-    // Read temperature as Celsius
-    	//floatTemperature4 = dht_pin4.getTempCelcius();
-      floatTemperature4 = dht_pin4.getCelsius();
-      stringTemperature4 = String(floatTemperature4, 2);
+      Serial.println("Connecting to Particle Cloud...");
 
-    // Set up the MAX17043 LiPo fuel gauge:
-      lipo.begin(); // Initialize the MAX17043 LiPo fuel gauge
+      if(Particle.connected() == false) {
+       Particle.connect();
 
-    // Quick start restarts the MAX17043 in hopes of getting a more accurate
-    // guess for the SOC.
-      lipo.quickStart();
-      delay(1000);
+      }
 
-    // lipo.getSOC() returns the estimated state of charge (e.g. 79%)
-	    soc = lipo.getSOC();
-      stringSOC = String(soc);
-      delay(1000);
+      Particle.process(); // explicitly trigger the background task
 
-      if (!scale_conf){
-        System.sleep(SLEEP_MODE_DEEP, 3580);
+      // Listen for the webhook response, and call calibrationResponse
+      Particle.subscribe("hook-response/calibration", calibrationResponse, MY_DEVICES);
 
-      } else {
+      // Give ourselves 10 seconds before we actually start the
+      // program.  This will open the serial monitor before
+      // the program sends the request
+      for(int i=0;i<10;i++) {
+          Serial.println("waiting " + String(10-i) + " seconds before we publish");
+          delay(1000);
+      }
 
-      Particle.publish("cloud4bees", JSON(), PRIVATE); // Send JSON Particle Cloud
 
-      delay(1000);
+      if (Particle.connected()) {
 
+          // publish the event that will trigger our Webhook
+          Particle.publish("calibration");
+          delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
+      }
+
+      Serial.println("Calibration: " + strCalibration);
+      scalefactor = strScalefactor.toFloat();
+      Serial.println("Scalefactor: " + strScalefactor);
+      offset = strOffset.toFloat();
+      Serial.println("Offset: " + strOffset);
+
+      delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
+
+      LoadCell.setCalFactor(scalefactor); // user set calibration factor (float)
+
+        if (scalefactor != 0) {
+          scale_conf = true;
+        }
+
+         //Begin DHT communication
+         int result3 = dht_pin3.acquireAndWait(1000); // wait up to 1 sec (default indefinitely)
+         int result4 = dht_pin4.acquireAndWait(1000);
+
+         //update() should be called at least as often as HX711 sample rate; >10Hz@10SPS, >80Hz@80SPS
+         //longer delay in scetch will reduce effective sample rate (be carefull with delay() in loop)
+         LoadCell.update();
+
+         delay(5000);
+
+         //get smoothed value from data set + current calibration factor
+         if (millis() > t + 250) {
+             float floatGewicht = LoadCell.getData();
+             stringGewicht =  String(floatGewicht, 2);
+             Serial.print("Load_cell output val: ");
+             Serial.println(floatGewicht);
+             t = millis();
+         }
+
+        // Reading temperature or humidity takes about 250 milliseconds!
+        // Sensor readings may also be up to 2 seconds 'old' (its a
+        // very slow sensor)
+        	floatHumidity3 = dht_pin3.getHumidity();
+          stringHumidity3 = String(floatHumidity3, 2),
+        // Read temperature as Celsius
+        	floatTemperature3 = dht_pin3.getCelsius();
+          stringTemperature3 = String(floatTemperature3, 2);
+
+          floatHumidity4 = dht_pin4.getHumidity();
+          stringHumidity4 = String(floatHumidity4, 2),
+        // Read temperature as Celsius
+        	floatTemperature4 = dht_pin4.getCelsius();
+          stringTemperature4 = String(floatTemperature4, 2);
+
+        // Use the on-board Fuel Gauge
+          soc = lipo.getSOC();
+          stringSOC = String(soc);
+          delay(1000);
+
+          if (!scale_conf ){
+            // Turn off microcontroller and cellular.
+            // Reset after seconds.
+            // Ultra low power usage.
+            System.sleep(SLEEP_MODE_DEEP, 3580);
+
+            } else {
+              Particle.publish("cloud4bees", JSON(), PRIVATE); // Send JSON Particle Cloud
+              delay(1000);
+              System.sleep(SLEEP_MODE_DEEP, 3580);
+              //System.sleep(SLEEP_MODE_DEEP, 120);
+          }
+    } else {
       System.sleep(SLEEP_MODE_DEEP, 3580);
+      //System.sleep(SLEEP_MODE_DEEP,120);
     }
 }
 
-//This function will get called when calibration comes in
 void calibrationResponse(const char *name, const char *data) {
     strCalibration = String(data);
     // Clear the parser state, add the string test2, and parse it
@@ -332,24 +323,12 @@ void calibrationResponse(const char *name, const char *data) {
   	parser1.addString(strCalibration);
   	if (!parser1.parse()) {
 	  	  Serial.println("parsing failed strCalibration");
-	  }
+	}
 
 	  Serial.println("parsing successful strCalibration");
 	  parser1.getOuterValueByKey("scalefactor", strScalefactor);
     parser1.getOuterValueByKey("offset", strOffset);
 	}
-
-/*
-// This function will get called when scalefactor comes in
-void gotScalefactor(const char *name, const char *data) {
-    str_scalefactor = String(data);
-}
-
-// This function will get called when offset comes in
-void gotOffset(const char *name, const char *data) {
-    str_offset = String(data);
-}
-*/
 
 String JSON() {
  String ret = "&field1=";
@@ -364,7 +343,5 @@ String JSON() {
   ret.concat(stringHumidity4);
   ret.concat("&field6=");
   ret.concat(stringSOC);
-
-
   return ret;
 }

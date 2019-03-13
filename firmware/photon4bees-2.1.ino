@@ -199,7 +199,7 @@ void loop() {
 
     Serial.println("Start Loop...");
 
-    if(lipo.getSOC() > 90) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
+    if(lipo.getSOC() > 20) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
     {
       Serial.println("SOC: " + String(lipo.getSOC()));
       //WiFi.on() turns on the Wi-Fi module.

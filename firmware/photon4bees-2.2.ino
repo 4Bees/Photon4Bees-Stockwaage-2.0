@@ -1,6 +1,6 @@
 // This #include statement was automatically added by the Particle IDE.
 #include "application.h" //Notwendig damit die externe RGB-LED schon beim Booten leuchtet!
-#include "HX711_ADC.h"
+#include "HX711.h"
 #include "Particle.h"  //Softap_http
 #include "softap_http.h"  //SoftAP
 #include "SparkFunMAX17043.h" // Include the SparkFun MAX17043 library
@@ -11,12 +11,12 @@
 
 
 PRODUCT_ID(8374); // replace by your product ID
-PRODUCT_VERSION(1); // increment each time you upload to the console
+PRODUCT_VERSION(3); // increment each time you upload to the console
 
 // Using SEMI_AUTOMATIC mode to get the lowest possible data usage by
 // registering functions and variables BEFORE connecting to the cloud.
 SYSTEM_MODE(SEMI_AUTOMATIC);
-SYSTEM_THREAD(ENABLED);
+//SYSTEM_THREAD(ENABLED);
 
 STARTUP(WiFi.selectAntenna(ANT_EXTERNAL)); // selects the u.FL antenna
 
@@ -116,7 +116,8 @@ STARTUP(softap_set_application_page_handler(myPage, nullptr));
 // Automatically mirror the onboard RGB LED to an external RGB LED
 // No additional code needed in setup() or loop()
 
-STARTUP(RGB.mirrorTo(D0, D1, D2));
+STARTUP(RGB.mirrorTo(D2, D2, D2));
+
 
 // DHT humidity/temperature sensors
 #define DHTPIN3 D3     // what pin we're connected to
@@ -135,8 +136,7 @@ PietteTech_DHT dht_pin4(DHTPIN4, DHTTYPE4);
 #define DOUT  A0
 #define CLK  A1
 
-//HX711 constructor (dout pin, sck pin)
-HX711_ADC LoadCell(DOUT, CLK);
+HX711 scale(DOUT, CLK);
 
 String strCalibration = "";
 String strScalefactor="";
@@ -170,25 +170,83 @@ JsonParserStatic<256, 20> parser1;
 
 long t;
 
+int status_led = D7;
+
+// Use primary serial over USB interface for logging output
+SerialLogHandler logHandler;
+
+
 
 void setup() {
 
   // put your setup code here, to run once:
-  delay(5000);
+  //delay(5000);
+
+  pinMode(status_led, OUTPUT);
+
   // Begin serial communication
   Serial.begin(9600);
 
   Serial.println("Start Setup...");
-  LoadCell.begin();
-  long stabilisingtime = 2000; // tare preciscion can be improved by adding a few seconds of stabilising time
-  LoadCell.start(stabilisingtime);
 
   // Set up the MAX17043 LiPo fuel gauge:
 	lipo.begin(); // Initialize the MAX17043 LiPo fuel gauge
+  delay(1000);
 
 	// Quick start restarts the MAX17043 in hopes of getting a more accurate
 	// guess for the SOC.
 	lipo.quickStart();
+  delay(500);
+  lipo.getSOC();
+  delay(500);
+
+
+  if(lipo.getSOC() > 20) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
+      {
+        Serial.println("SOC: " + String(lipo.getSOC()));
+        //WiFi.on() turns on the Wi-Fi module.
+        WiFi.on();
+        Serial.println("WiFi on...");
+        digitalWrite(status_led, HIGH);
+        delay(250);
+        digitalWrite(status_led, LOW);
+        delay(250);
+        digitalWrite(status_led, HIGH);
+        delay(250);
+        digitalWrite(status_led, LOW);
+        delay(250);
+        //Needed in SEMI_AUTOMATIC Mode
+        WiFi.connect();  // This command turns on the Cellular Modem and tells it to connect to the cellular network.
+
+        Serial.println("Connecting to WiFi...");
+        delay(500);
+
+
+        if (!waitFor(WiFi.ready, 60000)) { //If the cellular modem does not successfuly connect to the cellular network in 10 mins then go back to sleep via the sleep command below.
+            System.sleep(SLEEP_MODE_DEEP, 3580);
+          } else {
+            digitalWrite(status_led, HIGH);
+            delay(500);
+            digitalWrite(status_led, LOW);
+            delay(500);
+            digitalWrite(status_led, HIGH);
+            delay(500);
+            digitalWrite(status_led, LOW);
+            delay(500);
+          }
+
+        Serial.println("Connecting to Particle Cloud...");
+
+        if(Particle.connected() == false) {
+         Particle.connect();
+        }
+
+        Particle.process(); // explicitly trigger the background task
+
+
+      } else {
+        System.sleep(SLEEP_MODE_DEEP, 3580);
+      }
 
 }
 
@@ -199,34 +257,10 @@ void loop() {
 
     Serial.println("Start Loop...");
 
-    if(lipo.getSOC() > 20) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
-    {
-      Serial.println("SOC: " + String(lipo.getSOC()));
-      //WiFi.on() turns on the Wi-Fi module.
-      WiFi.on();
-      Serial.println("WiFi on...");
-      //Needed in SEMI_AUTOMATIC Mode
-      WiFi.connect();  // This command turns on the Cellular Modem and tells it to connect to the cellular network.
-
-      Serial.println("Connecting to WiFi...");
-      delay(500);
-
-      if (!waitFor(WiFi.ready, 120000)) { //If the cellular modem does not successfuly connect to the cellular network in 10 mins then go back to sleep via the sleep command below.
-          delay(5000);
-          System.sleep(SLEEP_MODE_DEEP, 3580);
-          //System.sleep(SLEEP_MODE_DEEP, 30);
-      }
-
-      Serial.println("Connecting to Particle Cloud...");
-
-      if(Particle.connected() == false) {
-       Particle.connect();
-
-      }
-
-      Particle.process(); // explicitly trigger the background task
+    scale.power_up();
 
       // Listen for the webhook response, and call calibrationResponse
+
       Particle.subscribe("hook-response/calibration", calibrationResponse, MY_DEVICES);
 
       // Give ourselves 10 seconds before we actually start the
@@ -253,30 +287,24 @@ void loop() {
 
       delay(5000); //Wichtig: Webhook gnügend Zeit geben, um die Daten zu Empfangen.
 
-      LoadCell.setCalFactor(scalefactor); // user set calibration factor (float)
+        scale.set_scale(scalefactor);
 
         if (scalefactor != 0) {
           scale_conf = true;
         }
 
-         //Begin DHT communication
-         int result3 = dht_pin3.acquireAndWait(1000); // wait up to 1 sec (default indefinitely)
-         int result4 = dht_pin4.acquireAndWait(1000);
 
-         //update() should be called at least as often as HX711 sample rate; >10Hz@10SPS, >80Hz@80SPS
-         //longer delay in scetch will reduce effective sample rate (be carefull with delay() in loop)
-         LoadCell.update();
 
-         delay(5000);
+        //scale.get_units(10) returns the medium of 10 measures
+        floatGewicht = (scale.get_units(10) - offset);
+        stringGewicht =  String(floatGewicht, 2);
+        Serial.println("Gewicht: " + stringGewicht);
+        delay(500);
+        scale.power_down();
 
-         //get smoothed value from data set + current calibration factor
-         if (millis() > t + 250) {
-             float floatGewicht = LoadCell.getData();
-             stringGewicht =  String(floatGewicht, 2);
-             Serial.print("Load_cell output val: ");
-             Serial.println(floatGewicht);
-             t = millis();
-         }
+        //Begin DHT communication
+        int result3 = dht_pin3.acquireAndWait(1000); // wait up to 1 sec (default indefinitely)
+        int result4 = dht_pin4.acquireAndWait(1000);
 
         // Reading temperature or humidity takes about 250 milliseconds!
         // Sensor readings may also be up to 2 seconds 'old' (its a
@@ -310,11 +338,9 @@ void loop() {
               System.sleep(SLEEP_MODE_DEEP, 3580);
               //System.sleep(SLEEP_MODE_DEEP, 120);
           }
-    } else {
-      System.sleep(SLEEP_MODE_DEEP, 3580);
-      //System.sleep(SLEEP_MODE_DEEP,120);
-    }
 }
+
+
 
 void calibrationResponse(const char *name, const char *data) {
     strCalibration = String(data);

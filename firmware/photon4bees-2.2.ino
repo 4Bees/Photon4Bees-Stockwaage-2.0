@@ -4,7 +4,7 @@
 #include "Particle.h"  //Softap_http
 #include "softap_http.h"  //SoftAP
 #include "SparkFunMAX17043.h" // Include the SparkFun MAX17043 library
-#include "PietteTech_DHT.h" //Include P
+#include "Adafruit_DHT_Particle.h" //Include P
 #include "JsonParserGeneratorRK.h"
 
 //Piettetech_DHT
@@ -129,8 +129,8 @@ STARTUP(RGB.mirrorTo(D2, D2, D2));
 #define DHTTYPE4 DHT22		// DHT 22 (AM2302)
 //#define DHTTYPE DHT21		// DHT 21 (AM2301)
 
-PietteTech_DHT dht_pin3(DHTPIN3, DHTTYPE3);
-PietteTech_DHT dht_pin4(DHTPIN4, DHTTYPE4);
+DHT dht_pin3(DHTPIN3, DHTTYPE3);
+DHT dht_pin4(DHTPIN4, DHTTYPE4);
 
 //HX711 Wägezellenverstärker
 #define DOUT  A0
@@ -183,6 +183,10 @@ void setup() {
   //delay(5000);
 
   pinMode(status_led, OUTPUT);
+
+  dht_pin3.begin();
+  delay(500);
+  dht_pin4.begin();
 
   // Begin serial communication
   Serial.begin(9600);
@@ -302,23 +306,19 @@ void loop() {
         delay(500);
         scale.power_down();
 
-        //Begin DHT communication
-        int result3 = dht_pin3.acquireAndWait(1000); // wait up to 1 sec (default indefinitely)
-        int result4 = dht_pin4.acquireAndWait(1000);
-
         // Reading temperature or humidity takes about 250 milliseconds!
         // Sensor readings may also be up to 2 seconds 'old' (its a
         // very slow sensor)
         	floatHumidity3 = dht_pin3.getHumidity();
           stringHumidity3 = String(floatHumidity3, 2),
         // Read temperature as Celsius
-        	floatTemperature3 = dht_pin3.getCelsius();
+        	floatTemperature3 = dht_pin3.getTempCelcius();
           stringTemperature3 = String(floatTemperature3, 2);
 
           floatHumidity4 = dht_pin4.getHumidity();
           stringHumidity4 = String(floatHumidity4, 2),
         // Read temperature as Celsius
-        	floatTemperature4 = dht_pin4.getCelsius();
+        	floatTemperature4 = dht_pin4.getTempCelcius();
           stringTemperature4 = String(floatTemperature4, 2);
 
         // Use the on-board Fuel Gauge
@@ -330,12 +330,12 @@ void loop() {
             // Turn off microcontroller and cellular.
             // Reset after seconds.
             // Ultra low power usage.
-            System.sleep(SLEEP_MODE_DEEP, 3580);
+            System.sleep(SLEEP_MODE_DEEP, 3550);
 
             } else {
               Particle.publish("cloud4bees", JSON(), PRIVATE); // Send JSON Particle Cloud
               delay(1000);
-              System.sleep(SLEEP_MODE_DEEP, 3580);
+              System.sleep(SLEEP_MODE_DEEP, 3550);
               //System.sleep(SLEEP_MODE_DEEP, 120);
           }
 }

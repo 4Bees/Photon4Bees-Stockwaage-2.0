@@ -204,8 +204,12 @@ void setup() {
   lipo.getSOC();
   delay(500);
 
+  if(lipo.getSOC() < 1) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
+      {
+        System.sleep(SLEEP_MODE_DEEP, 86400);
+      }
 
-  if(lipo.getSOC() > 20) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
+  if(lipo.getSOC() > 10) // If the battery SOC is above 20% then we will turn on the modem and then send the sensor data.
       {
         Serial.println("SOC: " + String(lipo.getSOC()));
         //WiFi.on() turns on the Wi-Fi module.
@@ -260,6 +264,7 @@ void setup() {
 void loop() {
 
     Serial.println("Start Loop...");
+    while (!scale_conf) {
 
     scale.power_up();
 
@@ -305,21 +310,35 @@ void loop() {
         Serial.println("Gewicht: " + stringGewicht);
         delay(500);
         scale.power_down();
+      }
 
         // Reading temperature or humidity takes about 250 milliseconds!
         // Sensor readings may also be up to 2 seconds 'old' (its a
         // very slow sensor)
+        for(int i=0;i<3;i++) {
         	floatHumidity3 = dht_pin3.getHumidity();
-          stringHumidity3 = String(floatHumidity3, 2),
-        // Read temperature as Celsius
-        	floatTemperature3 = dht_pin3.getTempCelcius();
-          stringTemperature3 = String(floatTemperature3, 2);
+          floatTemperature3 = dht_pin3.getTempCelcius();
+          delay(1000);
+          Serial.println("Humidity3");
 
-          floatHumidity4 = dht_pin4.getHumidity();
-          stringHumidity4 = String(floatHumidity4, 2),
+          if (floatHumidity3 > 0) {
+          stringHumidity3 = String(floatHumidity3, 2);
         // Read temperature as Celsius
-        	floatTemperature4 = dht_pin4.getTempCelcius();
+          stringTemperature3 = String(floatTemperature3, 2);
+          }
+        }
+
+        for(int i=0;i<3;i++) {
+          floatHumidity4 = dht_pin4.getHumidity();
+          floatTemperature4 = dht_pin4.getTempCelcius();
+          delay(1000);
+          Serial.println("Humidity4");
+
+          if (floatHumidity4 > 0) {
+          stringHumidity4 = String(floatHumidity4, 2);
           stringTemperature4 = String(floatTemperature4, 2);
+          }
+        }
 
         // Use the on-board Fuel Gauge
           soc = lipo.getSOC();
@@ -330,13 +349,14 @@ void loop() {
             // Turn off microcontroller and cellular.
             // Reset after seconds.
             // Ultra low power usage.
-            System.sleep(SLEEP_MODE_DEEP, 3550);
+            //System.sleep(SLEEP_MODE_DEEP, 3550);
+            System.sleep(SLEEP_MODE_DEEP, 60);
 
             } else {
               Particle.publish("cloud4bees", JSON(), PRIVATE); // Send JSON Particle Cloud
               delay(1000);
-              System.sleep(SLEEP_MODE_DEEP, 3550);
-              //System.sleep(SLEEP_MODE_DEEP, 120);
+              //System.sleep(SLEEP_MODE_DEEP, 3550);
+              System.sleep(SLEEP_MODE_DEEP, 60);
           }
 }
 
